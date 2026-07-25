@@ -31,7 +31,8 @@ public class Bot extends ListenerAdapter implements Runnable {
         final String url = System.getenv("BOT_URL");
         final String activity = System.getenv("BOT_ACTIVITY") == null ? "" : System.getenv("BOT_ACTIVITY");
         final String chance = System.getenv("BOT_CHANCE") == null ? "100" : System.getenv("BOT_CHANCE");
-        final String trigger = System.getenv("BOT_TRIGGER").isBlank() ? null : System.getenv("BOT_TRIGGER");
+        final String trigger = System.getenv("BOT_TRIGGER") == null || System.getenv("BOT_TRIGGER").isBlank()
+                ? null : System.getenv("BOT_TRIGGER");
 
         if (token == null || url == null || token.isBlank() || url.isBlank() || chance.isBlank()) {
             System.err.println("ENV: Bot token or bot url is empty");
