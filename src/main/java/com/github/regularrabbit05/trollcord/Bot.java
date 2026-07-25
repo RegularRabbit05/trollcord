@@ -80,7 +80,7 @@ public class Bot extends ListenerAdapter implements Runnable {
                 .setStatus(OnlineStatus.ONLINE)
                 .build();
         this.scheduler = Executors.newScheduledThreadPool(1);
-        this.scheduler.scheduleAtFixedRate(this, 15, 30, TimeUnit.SECONDS);
+        this.scheduler.scheduleAtFixedRate(this, 15, 60, TimeUnit.SECONDS);
     }
 
     @Override
