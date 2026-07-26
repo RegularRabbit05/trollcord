@@ -5,8 +5,8 @@ import net.dv8tion.jda.api.JDA;
 import net.dv8tion.jda.api.JDABuilder;
 import net.dv8tion.jda.api.OnlineStatus;
 import net.dv8tion.jda.api.audio.AudioModuleConfig;
-import net.dv8tion.jda.api.entities.Activity;
-import net.dv8tion.jda.api.entities.Guild;
+import net.dv8tion.jda.api.entities.*;
+import net.dv8tion.jda.api.entities.channel.concrete.VoiceChannel;
 import net.dv8tion.jda.api.events.message.MessageReceivedEvent;
 import net.dv8tion.jda.api.hooks.ListenerAdapter;
 import net.dv8tion.jda.api.managers.AudioManager;
@@ -20,6 +20,7 @@ import java.io.InputStream;
 import java.net.URI;
 import java.util.Arrays;
 import java.util.Comparator;
+import java.util.Optional;
 import java.util.Random;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -61,9 +62,10 @@ public class Bot extends ListenerAdapter implements Runnable {
     private final JDA jda;
     private final ScheduledExecutorService scheduler;
     private final byte[] file;
-    private final Random random;
     private final int chance;
     private final String trigger;
+    private final Random random;
+
     public Bot(String token, String url, String activity, int chance, String trigger) throws IOException {
         try (InputStream in = URI.create(url).toURL().openStream()) {
             this.file = in.readAllBytes();
@@ -83,39 +85,6 @@ public class Bot extends ListenerAdapter implements Runnable {
         this.scheduler.scheduleAtFixedRate(this, 15, 60, TimeUnit.SECONDS);
     }
 
-    @Override
-    public void run() {
-        if (random.nextInt(chance) != 0) return;
-        this.jda.getGuilds().parallelStream().forEach(this::doForGuild);
-    }
-
-    @Override
-    public void onMessageReceived(@NotNull MessageReceivedEvent event) {
-        if (!event.isFromGuild() || event.isWebhookMessage() || event.getAuthor().isSystem() || event.getAuthor().isBot()) return;
-        if (event.getMessage().getContentStripped().equalsIgnoreCase(trigger)) doForGuild(event.getGuild());
-    }
-
-    private void doForGuild(final Guild g) {
-        g.getVoiceChannels().stream()
-                .filter(vc -> !vc.getMembers().isEmpty())
-                .max(Comparator.comparingInt(vc -> vc.getMembers().size()))
-                .ifPresent(vc -> {
-                    final AudioManager audioManager = g.getAudioManager();
-                    audioManager.closeAudioConnection();
-                    audioManager.setSendingHandler(new StreamHandler(this::get20MsFile, audioManager::closeAudioConnection));
-                    audioManager.openAudioConnection(vc);
-                });
-    }
-
-    private byte[] get20MsFile(Integer i) {
-        if (i >= file.length || i < 0) return null;
-        final int CHUNK_SIZE = 3840;
-        final int end = Math.min(file.length, i + CHUNK_SIZE);
-        byte[] chunk = Arrays.copyOfRange(file, i, end);
-        if (chunk.length < CHUNK_SIZE) chunk = Arrays.copyOf(file, CHUNK_SIZE);
-        return chunk;
-    }
-
     public void stop() {
         jda.shutdown();
         scheduler.shutdown();
@@ -125,5 +94,48 @@ public class Bot extends ListenerAdapter implements Runnable {
     public void awaitShutdown() throws InterruptedException {
         jda.awaitShutdown();
         scheduler.awaitTermination(1, TimeUnit.MINUTES);
+    }
+
+    @Override
+    public void run() {
+        if (random.nextInt(chance) != 0) return;
+        this.jda.getGuilds().parallelStream()
+                .forEach(g -> getPopulatedVoiceChannel(g).ifPresent(this::doForChannel));
+    }
+
+    @Override
+    public void onMessageReceived(@NotNull MessageReceivedEvent event) {
+        if (!event.isFromGuild() || event.isWebhookMessage() || event.getAuthor().isSystem() || event.getAuthor().isBot()) return;
+        if (event.getMessage().getContentStripped().equalsIgnoreCase(trigger)) {
+            if (event.getMember() == null || event.getMember().getVoiceState() == null
+                    || event.getMember().getVoiceState().getChannel() == null) {
+                getPopulatedVoiceChannel(event.getGuild()).ifPresent(this::doForChannel);
+            } else {
+                doForChannel(event.getMember().getVoiceState().getChannel().asVoiceChannel());
+            }
+        }
+    }
+
+    private Optional<VoiceChannel> getPopulatedVoiceChannel(final Guild g) {
+        return g.getVoiceChannels().stream()
+                .filter(vc -> !vc.getMembers().isEmpty())
+                .max(Comparator.comparingInt(vc -> vc.getMembers().size()));
+    }
+
+    private void doForChannel(final VoiceChannel vc) {
+        if (vc == null) return;
+        final AudioManager audioManager = vc.getGuild().getAudioManager();
+        audioManager.closeAudioConnection();
+        audioManager.setSendingHandler(new StreamHandler(this::get20MsFile, audioManager::closeAudioConnection));
+        audioManager.openAudioConnection(vc);
+    }
+
+    private byte[] get20MsFile(Integer i) {
+        if (i >= file.length || i < 0) return null;
+        final int CHUNK_SIZE = 3840;
+        final int end = Math.min(file.length, i + CHUNK_SIZE);
+        byte[] chunk = Arrays.copyOfRange(file, i, end);
+        if (chunk.length < CHUNK_SIZE) chunk = Arrays.copyOf(file, CHUNK_SIZE);
+        return chunk;
     }
 }
